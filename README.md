@@ -9,9 +9,13 @@ Probably, but this is being built for fun.
 ## Usage
 
 ```
-sh present.sh -f [slides]
+./present.sh -f [slides]
 ```
 
 Slides are split by ---.
 
 Code blockes are delineated by \`\`\`. Note that \`\`\` does funny things to syntax highlighting, so I have to present it here escaped with slashes.
+
+## Additional Reading
+
+https://spec.commonmark.org/0.29/

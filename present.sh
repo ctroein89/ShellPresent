@@ -1,81 +1,111 @@
 #!/bin/bash
 
-SAVEIFS="$IFS"
-IFS="-"
+printHelp() {
+	printf "%s" "Usage: present.sh [-h] [filename]"
+	printf "%s" "    Presents a markdown-esque file as a slideshow"
+	exit 1
+}
 
-while getopts "f:" opt; do
+while getopts "h" opt; do
 	case ${opt} in
-		f)
-			oldIFS="$IFS"
-			filename="$OPTARG"
-			while IFS= read -r p; do
-				rawSlides="$rawSlides\n$p"
-			done < "$OPTARG"
-			IFS="$oldIFS"
+		h)
+			printHelp
 		;;
-		\? )
-
+		\?)
 		#print option error
 		echo "Invalid option: $OPTARG" 1>&2
-		;;
-		: )
-
-		#print argument error
-		echo "Invalid option: $OPTARG requires an argument" 1>&2
 		;;
 	esac
 done
 
-printf '<%s>\n' "$rawSlides"
-cleanedRawSlides=$(awk '{ gsub(/---/,"🔨"); print; }' <<<"$rawSlides")
-printf '<%s>\n' "$cleanedRawSlides"
-oldIFS="$IFS"
-IFS="🔨"
-read -ra slides <<<"$cleanedRawSlides"
-IFS="$oldIFS"
-printf '<%s>\n' "$slides"
+filename=${@:$OPTIND:1}
+if [ "$filename" == "" ]
+then
+	echo "[filename] argument cannot be empty."
+	exit 1
+fi
 
-printLine() {
-	line="$@"
-	if grep -q -E "^# " <<<"$line"; then
-		line="\033[1m$line\033[0m"
-	fi
-	codeBlockChar=$(printf \\$(printf '%03o' 96))
-	test=$codeBlockChar$codeBlockChar$codeBlockChar
-	if grep -q -E $test <<<"$line"
-	then
-		if [[ $inCodeBlock == 1 ]]
-		then
-			inCodeBlock=0
-			line="$line\033[0;37m"
-		else
-			inCodeBlock=1
-			line="\033[1;34m$line"
-		fi
-	fi
-	printf %b "$line\n"
+oldIFS="$IFS"
+while IFS= read -r p; do
+	rawSlides="$rawSlides\n$p"
+done < "$filename"
+IFS="$oldIFS"
+
+cleanedRawSlides=$(awk '{ gsub(/---/,"🔨"); print; }' <<<"$rawSlides")
+oldIFS="$IFS"
+IFS="🔨" read -ra slides <<<"$cleanedRawSlides"
+IFS="$oldIFS"
+
+fillBlankSpace() {
+	lineCount=$1
+	height=$(tput lines)
+	missingHeight=$(( $height - $lineCount ))
+	for (( j=0; j<$missingHeight; j++ )); do
+		printf "\n"
+	done
+	printf "%b" "\e[0;37m | $i / $max $filename | $(tput cols) x $(tput lines) | q : quit | → ↓ : next | ← ↑ : prev |"
 }
 
+codeBlockChar=$(printf \\$(printf '%03o' 96))
+codeBlockLine="$codeBlockChar$codeBlockChar$codeBlockChar"
+
 printSlide() {
-	clear
+	# clear
 	input="$@"
 	input=$(awk '{ gsub(/\\n/,"🔨"); print; }' <<<"$input")
 	oldIFS="$IFS"
 	IFS="🔨" read -ra slide <<<"$input"
 	IFS="$oldIFS"
-	# printf "\n<<%s>>" "$slide"
+
+	# Global state for slide
+	output="\e[m"
+	lineCount=0
+	inCodeBlock="0"
+
 	for line in "${slide[@]}"; do
-		printLine "$line"
-		line=""
+		lineCount=$(( $lineCount + 1 ))
+
+		# Line parsing somehow got a little weird with maintaing slide-state when
+		# parsing lines was a seperate function, so it's all jammed in here
+
+		foundHeaderHashtag="$(grep -q -E "^# " <<<"$line"; echo "$?")"
+		foundCodeBlockBoundary="$(grep -q "$codeBlockLine" <<<"$line"; echo "$?")"
+		if [ "$foundCodeBlockBoundary" == "0" ]
+		then
+			if [ $inCodeBlock == "0" ]
+			then
+				echo "blue"
+				inCodeBlock="1"
+			else
+				echo "white"
+				inCodeBlock="0"
+			fi
+		fi
+
+		parsed="$line" # default state
+
+		if [ "$foundHeaderHashtag" == "0" ]
+		then
+			parsed="\e[1m$line\e[m"
+		fi
+
+		if [ $inCodeBlock == "1" ]
+		then
+			parsed="\e[34m$line"
+		else
+			if [ "$foundCodeBlockBoundary" == "0" ]
+			then
+				parsed="$line\e[m"
+			fi
+		fi
+
+		output="$output$parsed\n"
 	done
-	slide=""
-	height=$(tput lines)
-	slideHeight=${#slide[@]}
-	missingHeight=$(( $height - $slideHeight ))
-	for (( j=1; j<$missingHeight; j++ )); do
-		printf "\n"
-	done
-	printf "%s" " | $i / $max $filename | $(tput cols) x $(tput lines) | q : quit | → ↓ : next | ← ↑ : prev |"
+
+	output="$output$(fillBlankSpace $lineCount)"
+
+	# this print should output to screen
+	printf %b "$output"
 }
 
 shouldContinue=1
@@ -111,6 +141,8 @@ do
 		*)
 			;;
 	esac
+
+	# paranoid that these will hold over to next loop iteration
 	keypress=""
 	mode=""
 done
