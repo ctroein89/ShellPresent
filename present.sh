@@ -7,6 +7,7 @@ while getopts "f:" opt; do
 	case ${opt} in
 		f)
 			oldIFS="$IFS"
+			filename="$OPTARG"
 			while IFS= read -r p; do
 				rawSlides="$rawSlides\n$p"
 			done < "$OPTARG"
@@ -36,7 +37,6 @@ printf '<%s>\n' "$slides"
 
 printLine() {
 	line="$@"
-	# slide=$(sed "s/# /\\033[1m# /" <<<"$slide")
 	if grep -q -E "^# " <<<"$line"; then
 		line="\033[1m$line\033[0m"
 	fi
@@ -57,6 +57,7 @@ printLine() {
 }
 
 printSlide() {
+	clear
 	input="$@"
 	input=$(awk '{ gsub(/\\n/,"🔨"); print; }' <<<"$input")
 	oldIFS="$IFS"
@@ -68,27 +69,48 @@ printSlide() {
 		line=""
 	done
 	slide=""
-	# read
+	height=$(tput lines)
+	slideHeight=${#slide[@]}
+	missingHeight=$(( $height - $slideHeight ))
+	for (( j=1; j<$missingHeight; j++ )); do
+		printf "\n"
+	done
+	printf "%s" " | $i / $max $filename | $(tput cols) x $(tput lines) | q : quit | → ↓ : next | ← ↑ : prev |"
 }
 
-# IFS="\n" read slides <<< "$slides"
-for (( i=0; i<${#slides[@]}; i++ ))
+shouldContinue=1
+i=0
+max=${#slides[@]}
+printSlide "${slides[$i]}"
+while [ $shouldContinue == 1 ]
 do
-	clear
-	printSlide "${slides[$i]}"
-	read -rsn1 keypress
+	escape_char=$(printf "\e")
+	read -rsn1 mode # get 1 character
+	if [[ $mode == $escape_char ]]; then
+		read -rsn2 mode2 # read 2 more chars
+		mode="$mode$mode2"
+	fi
+	keypress="${mode//$'\e'/}"
 	case $keypress in
-		"<")
-			# Go back 2 so that next instance of loop will be back one
-			i=$(expr $i - 2)
+		"<"|$'[A'|$'0A'|$'[D'|$'0D')
+			if [ $i -gt 0 ]; then
+				i=$(( $i - 1 ))
+				printSlide "${slides[$i]}"
+			fi
 			;;
-		">" | " " | "")
-			# Do nothing and slide will advance
+		">"|" "|""|$'[B'|$'0B'|$'[C'|$'0C')
+			if [ $i -lt $max ]
+			then
+				i=$(( $i + 1 ))
+				printSlide "${slides[$i]}"
+			fi
+			;;
+		q)
+			shouldContinue=0
 			;;
 		*)
-			i=$(expr $i - 1)
 			;;
-
 	esac
 	keypress=""
+	mode=""
 done
